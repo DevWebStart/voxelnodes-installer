@@ -1,40 +1,58 @@
 #!/bin/bash
 
 RESET="\033[0m"
-BOLD="\033[1m"
-
-PURPLE="\033[38;5;135m"
 CYAN="\033[36m"
 GREEN="\033[32m"
 RED="\033[31m"
-BLUE="\033[34m"
+PURPLE="\033[38;5;135m"
+
+LOG_FILE="/tmp/voxel_install.log"
+
+clear
 
 show_banner() {
-    clear
-    echo -e "${PURPLE}${BOLD}"
-    echo "██╗   ██╗ ██████╗ ██╗  ██╗███████╗██╗     ███╗   ██╗ ██████╗ ██████╗ ███████╗"
-    echo "██║   ██║██╔═══██╗╚██╗██╔╝██╔════╝██║     ████╗  ██║██╔═══██╗██╔══██╗██╔════╝"
-    echo "██║   ██║██║   ██║ ╚███╔╝ █████╗  ██║     ██╔██╗ ██║██║   ██║██║  ██║█████╗"
-    echo "╚██╗ ██╔╝██║   ██║ ██╔██╗ ██╔══╝  ██║     ██║╚██╗██║██║   ██║██║  ██║██╔══╝"
-    echo " ╚████╔╝ ╚██████╔╝██╔╝ ██╗███████╗███████╗██║ ╚████║╚██████╔╝██████╔╝███████╗"
-    echo "  ╚═══╝   ╚═════╝ ╚═╝  ╚═╝╚══════╝╚══════╝╚═╝  ╚═══╝ ╚═════╝ ╚═════╝ ╚══════╝"
-    echo -e "${RESET}"
-    echo -e "${CYAN}VoxelNodes Installer (Pro Edition)${RESET}"
-    echo ""
+echo -e "${PURPLE}"
+echo "██╗   ██╗ ██████╗ ██╗  ██╗███████╗██╗     ███╗   ██╗ ██████╗ ██████╗ ███████╗"
+echo "██║   ██║██╔═══██╗╚██╗██╔╝██╔════╝██║     ████╗  ██║██╔═══██╗██╔══██╗██╔════╝"
+echo "██║   ██║██║   ██║ ╚███╔╝ █████╗  ██║     ██╔██╗ ██║██║   ██║██║  ██║█████╗"
+echo "╚██╗ ██╔╝██║   ██║ ██╔██╗ ██╔══╝  ██║     ██║╚██╗██║██║   ██║██║  ██║██╔══╝"
+echo " ╚████╔╝ ╚██████╔╝██╔╝ ██╗███████╗███████╗██║ ╚████║╚██████╔╝██████╔╝███████╗"
+echo "  ╚═══╝   ╚═════╝ ╚═╝  ╚═╝╚══════╝╚══════╝╚═╝  ╚═══╝ ╚═════╝ ╚═════╝ ╚══════╝"
+echo -e "${RESET}"
+echo -e "${CYAN}VoxelNodes Installer (Pro Edition)${RESET}"
+echo ""
 }
 
 spinner() {
     local pid=$!
-    local spin='-\|/'
+    local spin='⠋⠙⠸⠴⠦⠇'
     local i=0
     while kill -0 $pid 2>/dev/null; do
-        i=$(( (i+1) %4 ))
-        printf "\r${CYAN}[%c]${RESET} Installing..." "${spin:$i:1}"
-        sleep .1
+        printf "\r${CYAN}%s${RESET} " "${spin:$i:1}"
+        i=$(( (i+1) %6 ))
+        sleep 0.08
     done
     printf "\r"
 }
 
+run() {
+    desc=$1
+    cmd=$2
+
+    echo -ne "${CYAN}➤ $desc...${RESET} "
+
+    bash -c "$cmd" >> $LOG_FILE 2>&1 &
+    spinner
+    wait $!
+
+    if [ $? -eq 0 ]; then
+        echo -e "${GREEN}✔${RESET}"
+    else
+        echo -e "${RED}✖ FAILED${RESET}"
+        echo "Check log: $LOG_FILE"
+        exit 1
+    fi
+}
 run_step() {
     echo -ne "${BLUE}➤ $1...${RESET}"
     $2 > /dev/null 2>&1 &
