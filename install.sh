@@ -16,7 +16,6 @@ echo "📥 Downloading installer..."
 rm -rf "$INSTALL_DIR"
 rm -f installer.zip
 
-# Download full project
 curl -L -o installer.zip https://github.com/DevWebStart/voxelnodes-installer/archive/refs/heads/main.zip > /dev/null 2>&1
 
 if [ ! -f "installer.zip" ]; then
