@@ -9,60 +9,81 @@ read -p "Email: " EMAIL
 read -s -p "DB Password: " DBPASS; echo
 
 echo ""
-echo "Creating admin..."
+echo "Create Admin"
 read -p "Username: " USER
 read -p "Email: " USEREMAIL
 read -s -p "Password: " USERPASS; echo
 
-# REMOVE APACHE
-run_step "Removing Apache" "apt remove apache2 -y"
+# PRECHECK
+run "Checking DNS" "ping -c1 $DOMAIN"
 
-# UPDATE
-run_step "Updating system" "apt update -y"
+# FIX APACHE
+run "Removing Apache" "apt remove apache2 -y"
 
-# INSTALL
-run_step "Installing deps" "apt install -y nginx mariadb-server redis-server curl unzip git"
+# SYSTEM UPDATE
+run "Updating system" "apt update -y"
+
+# INSTALL BASE
+run "Installing dependencies" "apt install -y nginx mariadb-server redis-server curl unzip git software-properties-common"
 
 # PHP
-run_step "Installing PHP 8.2" "add-apt-repository ppa:ondrej/php -y && apt update -y && apt install -y php8.2 php8.2-fpm php8.2-cli php8.2-mysql php8.2-xml php8.2-mbstring php8.2-curl php8.2-zip"
+run "Installing PHP 8.2" "add-apt-repository ppa:ondrej/php -y && apt update -y && apt install -y php8.2 php8.2-fpm php8.2-cli php8.2-mysql php8.2-xml php8.2-mbstring php8.2-curl php8.2-zip"
 
-systemctl enable nginx mariadb redis-server php8.2-fpm
-systemctl start nginx mariadb redis-server php8.2-fpm
+# START SERVICES
+run "Starting services" "systemctl enable nginx mariadb redis-server php8.2-fpm && systemctl restart nginx mariadb redis-server php8.2-fpm"
 
-# DB
-mysql -e "CREATE DATABASE panel;"
-mysql -e "CREATE USER 'ptero'@'127.0.0.1' IDENTIFIED BY '$DBPASS';"
-mysql -e "GRANT ALL PRIVILEGES ON panel.* TO 'ptero'@'127.0.0.1'; FLUSH PRIVILEGES;"
+# DB SAFE CREATE
+run "Setting up database" "
+mysql -e \"DROP DATABASE IF EXISTS panel;\"
+mysql -e \"CREATE DATABASE panel;\"
+mysql -e \"DROP USER IF EXISTS 'ptero'@'127.0.0.1';\"
+mysql -e \"CREATE USER 'ptero'@'127.0.0.1' IDENTIFIED BY '$DBPASS';\"
+mysql -e \"GRANT ALL PRIVILEGES ON panel.* TO 'ptero'@'127.0.0.1'; FLUSH PRIVILEGES;\"
+"
 
-# PANEL
-mkdir -p /var/www/pterodactyl
-cd /var/www/pterodactyl
-
-curl -Lo panel.tar.gz https://github.com/pterodactyl/panel/releases/latest/download/panel.tar.gz > /dev/null
-tar -xzvf panel.tar.gz > /dev/null
+# PANEL DOWNLOAD
+run "Downloading panel" "
+mkdir -p /var/www/pterodactyl &&
+cd /var/www/pterodactyl &&
+curl -Lo panel.tar.gz https://github.com/pterodactyl/panel/releases/latest/download/panel.tar.gz &&
+tar -xzvf panel.tar.gz
+"
 
 # COMPOSER
-curl -sS https://getcomposer.org/installer | php > /dev/null
+run "Installing Composer" "
+curl -sS https://getcomposer.org/installer | php &&
 mv composer.phar /usr/local/bin/composer
+"
 
-composer install --no-dev --optimize-autoloader > /dev/null
+# BACKEND
+run "Installing backend" "
+cd /var/www/pterodactyl &&
+composer install --no-dev --optimize-autoloader
+"
 
-cp .env.example .env
-
-php artisan key:generate --force
-
-# FULL ENV FIX (THIS FIXES LOGIN BUG)
-sed -i "s|APP_URL=.*|APP_URL=https://$DOMAIN|" .env
-sed -i "s|DB_HOST=.*|DB_HOST=127.0.0.1|" .env
-sed -i "s|DB_DATABASE=.*|DB_DATABASE=panel|" .env
-sed -i "s|DB_USERNAME=.*|DB_USERNAME=ptero|" .env
-sed -i "s|DB_PASSWORD=.*|DB_PASSWORD=$DBPASS|" .env
-
-php artisan config:clear
+# ENV FULL FIX
+run "Configuring environment" "
+cd /var/www/pterodactyl &&
+cp .env.example .env &&
+php artisan key:generate --force &&
+sed -i \"s|APP_URL=.*|APP_URL=https://$DOMAIN|\" .env &&
+sed -i \"s|DB_HOST=.*|DB_HOST=127.0.0.1|\" .env &&
+sed -i \"s|DB_DATABASE=.*|DB_DATABASE=panel|\" .env &&
+sed -i \"s|DB_USERNAME=.*|DB_USERNAME=ptero|\" .env &&
+sed -i \"s|DB_PASSWORD=.*|DB_PASSWORD=$DBPASS|\" .env &&
+php artisan config:clear &&
 php artisan cache:clear
+"
 
+# MIGRATION
+run "Running migrations" "
+cd /var/www/pterodactyl &&
 php artisan migrate --seed --force
+"
 
+# ADMIN CREATE
+run "Creating admin" "
+cd /var/www/pterodactyl &&
 php artisan p:user:make <<EOF
 yes
 $USER
@@ -71,10 +92,15 @@ Admin
 User
 $USERPASS
 EOF
+"
 
+# PERMISSIONS
+run "Fixing permissions" "
 chown -R www-data:www-data /var/www/pterodactyl
+"
 
 # NGINX
+run "Configuring web server" "
 cat > /etc/nginx/sites-available/pterodactyl.conf <<EOL
 server {
     listen 80;
@@ -93,15 +119,17 @@ server {
     }
 }
 EOL
-
 ln -sf /etc/nginx/sites-available/pterodactyl.conf /etc/nginx/sites-enabled/
 systemctl restart nginx
+"
 
 # SSL
-apt install certbot python3-certbot-nginx -y > /dev/null
-certbot --nginx -d $DOMAIN --non-interactive --agree-tos -m $EMAIL > /dev/null
+run "Installing SSL" "
+apt install certbot python3-certbot-nginx -y &&
+certbot --nginx -d $DOMAIN --non-interactive --agree-tos -m $EMAIL
+"
 
 echo ""
-echo "✔ DONE"
-echo "https://$DOMAIN"
+echo "🎉 INSTALLATION COMPLETE"
+echo "Panel: https://$DOMAIN"
 }
