@@ -1,18 +1,26 @@
 #!/bin/bash
 
-# Colors
-BLUE="\e[38;5;39m"
-PURPLE="\e[38;5;93m"
-CYAN="\e[36m"
-GREEN="\e[32m"
-RED="\e[31m"
-RESET="\e[0m"
+# COLORS
+RESET="\033[0m"
+BOLD="\033[1m"
+DIM="\033[2m"
 
-# ================= BANNER =================
+PURPLE="\033[38;5;135m"
+BLUE="\033[38;5;63m"
+CYAN="\033[36m"
+GREEN="\033[32m"
+RED="\033[31m"
+YELLOW="\033[33m"
 
+# CLEAR
+clear_screen() {
+    clear
+}
+
+# LOGO
 show_banner() {
     clear
-    echo -e "${PURPLE}"
+    echo -e "${PURPLE}${BOLD}"
     echo "██╗   ██╗ ██████╗ ██╗  ██╗███████╗██╗     ███╗   ██╗ ██████╗ ██████╗ ███████╗"
     echo "██║   ██║██╔═══██╗╚██╗██╔╝██╔════╝██║     ████╗  ██║██╔═══██╗██╔══██╗██╔════╝"
     echo "██║   ██║██║   ██║ ╚███╔╝ █████╗  ██║     ██╔██╗ ██║██║   ██║██║  ██║█████╗  "
@@ -20,21 +28,39 @@ show_banner() {
     echo " ╚████╔╝ ╚██████╔╝██╔╝ ██╗███████╗███████╗██║ ╚████║╚██████╔╝██████╔╝███████╗"
     echo "  ╚═══╝   ╚═════╝ ╚═╝  ╚═╝╚══════╝╚══════╝╚═╝  ╚═══╝ ╚═════╝ ╚═════╝ ╚══════╝"
     echo -e "${RESET}"
-    echo -e "${CYAN}           VoxelNodes Installer (Pro Edition)${RESET}"
+    echo -e "${CYAN}VoxelNodes Installer (Pro Edition)${RESET}"
     echo ""
 }
 
-# ================= SPINNER =================
-
+# LOADING ANIMATION
 spinner() {
     local pid=$!
-    local delay=0.08
-    local spin='|/-\'
+    local spin='-\|/'
+    local i=0
+    while kill -0 $pid 2>/dev/null; do
+        i=$(( (i+1) %4 ))
+        printf "\r${CYAN}[%c]${RESET} " "${spin:$i:1}"
+        sleep .1
+    done
+    printf "\r"
+}
 
-    while ps -p $pid > /dev/null 2>&1; do
-        for i in $(seq 0 3); do
-            printf "\r${BLUE}➤ Processing... ${spin:$i:1}${RESET}"
-            sleep $delay
+# STEP DISPLAY
+step() {
+    echo -e "${BLUE}➤ $1${RESET}"
+}
+
+success() {
+    echo -e "${GREEN}✔ $1${RESET}"
+}
+
+error() {
+    echo -e "${RED}✖ $1${RESET}"
+}
+
+warn() {
+    echo -e "${YELLOW}⚠ $1${RESET}"
+}            sleep $delay
         done
     done
 
