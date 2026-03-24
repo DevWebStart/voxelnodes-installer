@@ -1,112 +1,140 @@
 #!/bin/bash
 
-source lib/utils.sh
-source lib/ui.sh
+install_panel() {
 
 show_banner
-
 echo "Pterodactyl Panel Installation"
 echo ""
 
-confirm
-
-# ================= INPUT =================
+read -p "Proceed? (y/n): " confirm
+[[ "$confirm" != "y" ]] && return
 
 read -p "Domain: " DOMAIN
 read -p "Email: " EMAIL
-
-read -s -p "DB Password: " DB_PASS
+read -s -p "DB Password: " DBPASS
 echo ""
 
 echo ""
 echo "Create Admin Account"
-
-read -p "Admin Username: " ADMIN_USER
-read -p "Admin Email: " ADMIN_EMAIL
-read -p "Admin First Name: " ADMIN_FIRST
-read -p "Admin Last Name: " ADMIN_LAST
-
-read -s -p "Admin Password: " ADMIN_PASS
+read -p "Admin Username: " USERNAME
+read -p "Admin Email: " USEREMAIL
+read -p "Admin First Name: " FIRSTNAME
+read -p "Admin Last Name: " LASTNAME
+read -s -p "Admin Password: " USERPASS
 echo ""
 
 echo ""
 echo "Configuration Summary:"
 echo "Domain: $DOMAIN"
-echo "Admin: $ADMIN_USER"
-echo ""
+echo "Admin: $USERNAME"
 
-confirm
+read -p "Proceed? (y/n): " confirm2
+[[ "$confirm2" != "y" ]] && return
 
-# ================= SYSTEM CHECK =================
+# FIX APACHE CONFLICT
+step "Removing Apache (if installed)"
+systemctl stop apache2 2>/dev/null
+systemctl disable apache2 2>/dev/null
+apt remove apache2 -y > /dev/null 2>&1
 
-run_step "Checking OS" "grep -q 'Ubuntu 22.04' /etc/os-release"
-run_step "Checking root" "[ \"$EUID\" -eq 0 ]"
+# SYSTEM UPDATE
+step "Updating system"
+apt update -y > /dev/null 2>&1
 
-# ================= DEPENDENCIES =================
+# INSTALL DEPENDENCIES
+step "Installing dependencies"
+apt install -y nginx mariadb-server redis-server curl unzip git software-properties-common > /dev/null 2>&1
 
-run_step "Updating system" "apt update -y"
-run_step "Installing base packages" "apt install -y nginx mariadb-server redis-server curl unzip git software-properties-common"
+# PHP 8.2
+step "Installing PHP 8.2"
+add-apt-repository ppa:ondrej/php -y > /dev/null 2>&1
+apt update -y > /dev/null 2>&1
+apt install -y php8.2 php8.2-cli php8.2-fpm php8.2-mysql php8.2-zip php8.2-gd php8.2-mbstring php8.2-curl php8.2-xml php8.2-bcmath > /dev/null 2>&1
 
-# ================= PHP 8.2 =================
+# START SERVICES
+systemctl enable nginx mariadb redis-server php8.2-fpm > /dev/null 2>&1
+systemctl start nginx mariadb redis-server php8.2-fpm > /dev/null 2>&1
 
-run_step "Adding PHP repo" "add-apt-repository ppa:ondrej/php -y"
-run_step "Updating packages" "apt update -y"
+success "Services started"
 
-run_step "Installing PHP 8.2" "apt install -y php8.2 php8.2-cli php8.2-fpm php8.2-mysql php8.2-zip php8.2-gd php8.2-mbstring php8.2-curl php8.2-xml php8.2-bcmath"
+# DATABASE
+step "Configuring database"
+mysql -e "CREATE DATABASE panel;" 2>/dev/null
+mysql -e "CREATE USER 'ptero'@'127.0.0.1' IDENTIFIED BY '$DBPASS';"
+mysql -e "GRANT ALL PRIVILEGES ON panel.* TO 'ptero'@'127.0.0.1';"
+mysql -e "FLUSH PRIVILEGES;"
+success "Database ready"
 
-run_step "Setting PHP default" "update-alternatives --set php /usr/bin/php8.2"
+# PANEL
+step "Downloading panel"
+mkdir -p /var/www/pterodactyl
+cd /var/www/pterodactyl
+curl -Lo panel.tar.gz https://github.com/pterodactyl/panel/releases/latest/download/panel.tar.gz > /dev/null 2>&1
+tar -xzvf panel.tar.gz > /dev/null 2>&1
 
-PHP_VERSION="8.2"
-PHP_SOCKET="/var/run/php/php8.2-fpm.sock"
+# COMPOSER
+step "Installing Composer"
+curl -sS https://getcomposer.org/installer | php > /dev/null 2>&1
+mv composer.phar /usr/local/bin/composer
 
-# ================= SERVICES =================
+# BACKEND
+step "Installing backend"
+composer install --no-dev --optimize-autoloader > /dev/null 2>&1
 
-run_step "Starting MariaDB" "systemctl enable --now mariadb"
-run_step "Starting Redis" "systemctl enable --now redis-server"
-run_step "Starting Nginx" "systemctl enable --now nginx"
-run_step "Starting PHP-FPM" "systemctl enable --now php8.2-fpm"
+# ENV
+cp .env.example .env
+php artisan key:generate --force > /dev/null 2>&1
 
-# ================= DATABASE =================
+# AUTO CONFIG ENV
+sed -i "s|APP_URL=.*|APP_URL=https://$DOMAIN|" .env
+sed -i "s|DB_PASSWORD=.*|DB_PASSWORD=$DBPASS|" .env
 
-run_step "Creating DB" "mysql -e \"CREATE DATABASE panel;\""
-run_step "Creating DB user" "mysql -e \"CREATE USER 'ptero'@'127.0.0.1' IDENTIFIED BY '$DB_PASS';\""
-run_step "Granting DB permissions" "mysql -e \"GRANT ALL PRIVILEGES ON panel.* TO 'ptero'@'127.0.0.1'; FLUSH PRIVILEGES;\""
+# MIGRATE
+php artisan migrate --seed --force > /dev/null 2>&1
 
-# ================= PANEL =================
+# CREATE ADMIN
+php artisan p:user:make <<EOF
+yes
+$USERNAME
+$USEREMAIL
+$FIRSTNAME
+$LASTNAME
+$USERPASS
+EOF
 
-run_step "Downloading panel" "mkdir -p /var/www/pterodactyl && cd /var/www/pterodactyl && curl -Lo panel.tar.gz https://github.com/pterodactyl/panel/releases/latest/download/panel.tar.gz"
+# PERMISSIONS
+chown -R www-data:www-data /var/www/pterodactyl
 
-run_step "Extracting panel" "cd /var/www/pterodactyl && tar -xzvf panel.tar.gz"
+# NGINX CONFIG
+step "Configuring Nginx"
+cat > /etc/nginx/sites-available/pterodactyl.conf <<EOL
+server {
+    listen 80;
+    server_name $DOMAIN;
+    root /var/www/pterodactyl/public;
 
-run_step "Installing Composer" "curl -sS https://getcomposer.org/installer | php && mv composer.phar /usr/local/bin/composer"
+    index index.php;
+    location / {
+        try_files \$uri \$uri/ /index.php?\$query_string;
+    }
 
-run_step "Installing backend" "cd /var/www/pterodactyl && composer install --no-dev --optimize-autoloader"
+    location ~ \.php$ {
+        fastcgi_pass unix:/run/php/php8.2-fpm.sock;
+        include fastcgi_params;
+        fastcgi_param SCRIPT_FILENAME \$document_root\$fastcgi_script_name;
+    }
+}
+EOL
 
-# ================= ENV =================
+ln -sf /etc/nginx/sites-available/pterodactyl.conf /etc/nginx/sites-enabled/
+systemctl restart nginx
 
-run_step "Setting env" "cd /var/www/pterodactyl && cp .env.example .env"
+# SSL
+step "Installing SSL"
+apt install certbot python3-certbot-nginx -y > /dev/null 2>&1
+certbot --nginx -d $DOMAIN --non-interactive --agree-tos -m $EMAIL > /dev/null 2>&1
 
-run_step "Configuring env" "cd /var/www/pterodactyl && sed -i 's|APP_URL=.*|APP_URL=https://$DOMAIN|' .env"
-
-run_step "DB config" "cd /var/www/pterodactyl && sed -i 's|DB_PASSWORD=.*|DB_PASSWORD=$DB_PASS|' .env"
-
-run_step "Generating key" "cd /var/www/pterodactyl && php artisan key:generate --force"
-
-# ================= MIGRATION =================
-
-run_step "Running migrations" "cd /var/www/pterodactyl && php artisan migrate --seed --force"
-
-# ================= ADMIN =================
-
-run_step "Creating admin" "cd /var/www/pterodactyl && php artisan p:user:make --email=$ADMIN_EMAIL --username=$ADMIN_USER --name-first=$ADMIN_FIRST --name-last=$ADMIN_LAST --password=$ADMIN_PASS --admin=1"
-
-# ================= PERMISSIONS =================
-
-run_step "Fixing permissions" "chown -R www-data:www-data /var/www/pterodactyl"
-
-# ================= DONE =================
-
-echo ""
-echo "✔ Installation Complete"
+success "Installation Complete"
 echo "Panel: https://$DOMAIN"
-echo "Admin: $ADMIN_USER"
+echo "Admin: $USERNAME"
+}
