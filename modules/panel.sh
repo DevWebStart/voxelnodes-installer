@@ -42,21 +42,18 @@ confirm
 
 # ================= INSTALL =================
 
-step "Installing dependencies"
+run_step "Updating system" "apt update -y"
 
-run_cmd "apt update -y"
-run_cmd "apt install -y nginx mariadb-server redis-server curl unzip git certbot python3-certbot-nginx"
+run_step "Installing core dependencies" "apt install -y nginx mariadb-server redis-server curl unzip git certbot python3-certbot-nginx"
 
 # 🔥 Install PHP FIRST (FIXED)
-run_cmd "apt install -y php php-cli php-fpm php-mysql php-zip php-gd php-mbstring php-curl php-xml php-bcmath"
+run_step "Installing PHP" "apt install -y php php-cli php-fpm php-mysql php-zip php-gd php-mbstring php-curl php-xml php-bcmath"
 
 # 🔥 Ensure PHP installed
 if ! command -v php >/dev/null 2>&1; then
-    echo "❌ PHP installation failed"
+    fail_msg "PHP installation failed"
     exit 1
 fi
-
-done_msg "Dependencies ready"
 
 # ================= PHP DETECTION =================
 
@@ -65,75 +62,48 @@ PHP_SOCKET="/var/run/php/php$PHP_VERSION-fpm.sock"
 
 # ================= SERVICES =================
 
-step "Starting services"
-
-run_cmd "systemctl enable --now mariadb"
-run_cmd "systemctl enable --now redis-server"
-run_cmd "systemctl enable --now nginx"
-run_cmd "systemctl enable --now php$PHP_VERSION-fpm"
-
-done_msg "Services running"
+run_step "Starting MariaDB" "systemctl enable --now mariadb"
+run_step "Starting Redis" "systemctl enable --now redis-server"
+run_step "Starting Nginx" "systemctl enable --now nginx"
+run_step "Starting PHP-FPM" "systemctl enable --now php$PHP_VERSION-fpm"
 
 # ================= DATABASE =================
 
-step "Configuring database"
-
-run_cmd "mysql -e \"CREATE DATABASE panel;\""
-run_cmd "mysql -e \"CREATE USER 'ptero'@'127.0.0.1' IDENTIFIED BY '$DB_PASS';\""
-run_cmd "mysql -e \"GRANT ALL PRIVILEGES ON panel.* TO 'ptero'@'127.0.0.1';\""
-run_cmd "mysql -e \"FLUSH PRIVILEGES;\""
-
-done_msg "Database configured"
+run_step "Creating database" "mysql -e \"CREATE DATABASE panel;\""
+run_step "Creating DB user" "mysql -e \"CREATE USER 'ptero'@'127.0.0.1' IDENTIFIED BY '$DB_PASS';\""
+run_step "Granting permissions" "mysql -e \"GRANT ALL PRIVILEGES ON panel.* TO 'ptero'@'127.0.0.1'; FLUSH PRIVILEGES;\""
 
 # ================= PANEL =================
 
-step "Downloading panel"
+run_step "Downloading panel" "mkdir -p /var/www/pterodactyl && cd /var/www/pterodactyl && curl -Lo panel.tar.gz https://github.com/pterodactyl/panel/releases/latest/download/panel.tar.gz"
 
-run_cmd "mkdir -p /var/www/pterodactyl"
-run_cmd "cd /var/www/pterodactyl && curl -Lo panel.tar.gz https://github.com/pterodactyl/panel/releases/latest/download/panel.tar.gz"
-run_cmd "cd /var/www/pterodactyl && tar -xzvf panel.tar.gz"
-
-done_msg "Panel ready"
+run_step "Extracting panel" "cd /var/www/pterodactyl && tar -xzvf panel.tar.gz"
 
 # ================= COMPOSER =================
 
-step "Installing backend"
+run_step "Installing Composer" "curl -sS https://getcomposer.org/installer | php && mv composer.phar /usr/local/bin/composer"
 
-run_cmd "curl -sS https://getcomposer.org/installer | php"
-run_cmd "mv composer.phar /usr/local/bin/composer"
-
-run_cmd "cd /var/www/pterodactyl && composer install --no-dev --optimize-autoloader"
-
-done_msg "Backend installed"
+run_step "Installing backend" "cd /var/www/pterodactyl && composer install --no-dev --optimize-autoloader"
 
 # ================= ENV =================
 
-step "Configuring environment"
+run_step "Setting environment" "cd /var/www/pterodactyl && cp .env.example .env"
 
-run_cmd "cd /var/www/pterodactyl && cp .env.example .env"
+run_step "Configuring environment" "cd /var/www/pterodactyl && sed -i 's|APP_URL=.*|APP_URL=https://$DOMAIN|' .env"
 
-run_cmd "cd /var/www/pterodactyl && sed -i 's|APP_URL=.*|APP_URL=https://$DOMAIN|' .env"
-run_cmd "cd /var/www/pterodactyl && sed -i 's|DB_PASSWORD=.*|DB_PASSWORD=$DB_PASS|' .env"
-run_cmd "cd /var/www/pterodactyl && sed -i 's|DB_DATABASE=.*|DB_DATABASE=panel|' .env"
-run_cmd "cd /var/www/pterodactyl && sed -i 's|DB_USERNAME=.*|DB_USERNAME=ptero|' .env"
+run_step "Setting DB config" "cd /var/www/pterodactyl && sed -i 's|DB_PASSWORD=.*|DB_PASSWORD=$DB_PASS|' .env"
 
-run_cmd "cd /var/www/pterodactyl && php artisan key:generate --force"
+run_step "Finalizing env" "cd /var/www/pterodactyl && sed -i 's|DB_DATABASE=.*|DB_DATABASE=panel|' .env && sed -i 's|DB_USERNAME=.*|DB_USERNAME=ptero|' .env"
 
-done_msg "Environment ready"
+run_step "Generating app key" "cd /var/www/pterodactyl && php artisan key:generate --force"
 
 # ================= MIGRATION =================
 
-step "Running migrations"
-
-run_cmd "cd /var/www/pterodactyl && php artisan migrate --seed --force"
-
-done_msg "Database ready"
+run_step "Running migrations" "cd /var/www/pterodactyl && php artisan migrate --seed --force"
 
 # ================= ADMIN =================
 
-step "Creating admin"
-
-run_cmd "cd /var/www/pterodactyl && php artisan p:user:make \
+run_step "Creating admin" "cd /var/www/pterodactyl && php artisan p:user:make \
 --email=$ADMIN_EMAIL \
 --username=$ADMIN_USER \
 --name-first=$ADMIN_FIRST \
@@ -141,16 +111,9 @@ run_cmd "cd /var/www/pterodactyl && php artisan p:user:make \
 --password=$ADMIN_PASS \
 --admin=1"
 
-done_msg "Admin created"
-
 # ================= PERMISSIONS =================
 
-step "Fixing permissions"
-
-run_cmd "chown -R www-data:www-data /var/www/pterodactyl"
-run_cmd "chmod -R 755 /var/www/pterodactyl"
-
-done_msg "Permissions fixed"
+run_step "Fixing permissions" "chown -R www-data:www-data /var/www/pterodactyl && chmod -R 755 /var/www/pterodactyl"
 
 # ================= QUEUE =================
 
@@ -171,25 +134,19 @@ ExecStart=/usr/bin/php /var/www/pterodactyl/artisan queue:work --queue=high,stan
 WantedBy=multi-user.target
 EOF
 
-run_cmd "systemctl daemon-reexec"
-run_cmd "systemctl enable --now pteroq"
-
-done_msg "Queue active"
+run_step "Starting queue worker" "systemctl daemon-reexec && systemctl enable --now pteroq"
 
 # ================= CRON =================
 
-step "Setting up scheduler"
-
-run_cmd "(crontab -l 2>/dev/null; echo '* * * * * php /var/www/pterodactyl/artisan schedule:run >> /dev/null 2>&1') | crontab -"
-
-done_msg "Scheduler active"
+run_step "Setting scheduler" "(crontab -l 2>/dev/null; echo '* * * * * php /var/www/pterodactyl/artisan schedule:run >> /dev/null 2>&1') | crontab -"
 
 # ================= NGINX =================
 
 read -p "Setup web server & SSL? (y/n): " WEB
 
 if [[ "$WEB" == "y" ]]; then
-    step "Configuring web server"
+
+    step "Configuring Nginx"
 
     NGINX_CONF="/etc/nginx/sites-available/pterodactyl.conf"
 
@@ -214,15 +171,14 @@ server {
 }
 EOF
 
-    run_cmd "ln -s $NGINX_CONF /etc/nginx/sites-enabled/"
-    run_cmd "systemctl restart nginx"
+    run_step "Enabling site" "ln -s $NGINX_CONF /etc/nginx/sites-enabled/"
+    run_step "Restarting Nginx" "systemctl restart nginx"
 
-    step "Generating SSL"
+    run_step "Installing SSL" "certbot --nginx -d $DOMAIN --non-interactive --agree-tos -m $EMAIL"
 
-    run_cmd "certbot --nginx -d $DOMAIN --non-interactive --agree-tos -m $EMAIL"
-
-    done_msg "Web ready"
 fi
+
+# ================= FINAL =================
 
 echo ""
 done_msg "Installation Complete"
