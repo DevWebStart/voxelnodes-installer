@@ -1,54 +1,31 @@
 #!/bin/bash
 
-# LOAD LIBS
 source lib/ui.sh
 source lib/utils.sh
-
-# LOAD MODULES
 source modules/panel.sh
+
+check_root
+detect_os
 
 while true; do
     show_banner
 
     echo "1) Install Panel"
-    echo "2) Install Wings"
-    echo "3) Install Both"
-    echo "4) Install Blueprint"
-    echo "5) Install Themes/Addons"
-    echo "6) Uninstall"
     echo "0) Exit"
     echo ""
 
-    read -p "Select an option: " option
+    read -p "Select option: " opt
 
-    case $option in
+    case $opt in
         1)
             install_panel
             ;;
-        2)
-            echo "Wings installer coming soon..."
-            ;;
-        3)
-            install_panel
-            ;;
-        4)
-            echo "Blueprint installer coming soon..."
-            ;;
-        5)
-            echo "Themes/Addons coming soon..."
-            ;;
-        6)
-            echo "Uninstall coming soon..."
-            ;;
         0)
-            exit 0
+            exit
             ;;
         *)
-            echo "Invalid option"
+            echo "Invalid"
             sleep 1
             ;;
     esac
-
-    echo ""
-    read -p "Press Enter to continue..."
 done
